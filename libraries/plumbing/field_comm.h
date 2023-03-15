@@ -8,15 +8,20 @@
 #if defined(USE_TX)
 
 #if defined(CUDA)
-#include "/usr/local/cuda/include/nvToolsExt.h"
+#include <nvToolsExt.h>
 #define txRangePush(message) nvtxRangePushA(message)
 #define txRangePop() nvtxRangePop()
 #elif defined(HIP)
-#include "rocToolsExt.h"
+#include <rocToolsExt.h>
 #define txRangePush(message) roctxRangePushA(message)
 #define txRangePop() roctxRangePop()
 #endif
- 
+
+#else
+
+#define txRangePush(message)
+#define txRangePop()
+
 #endif
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -359,14 +364,10 @@ dir_mask_t Field<T>::start_gather(Direction d, Parity p) const {
         post_receive_timer.start();
 
         // c++ version does not return errors
-#if defined(USE_TX)
         txRangePush("MPI_Irecv");
-#endif
         MPI_Irecv(receive_buffer, (int)n, mpi_type, from_node.rank, tag, lattice.mpi_comm_lat,
                   &fs->receive_request[par_i][d]);
-#if defined(USE_TX)
         txRangePop();
-#endif
         post_receive_timer.stop();
     }
 
@@ -389,14 +390,10 @@ dir_mask_t Field<T>::start_gather(Direction d, Parity p) const {
 #endif
 
         start_send_timer.start();
-#ifdef USE_TX
         txRangePush("MPI_Isend");
-#endif
         MPI_Isend(send_buffer, (int)n, mpi_type, to_node.rank, tag, lattice.mpi_comm_lat,
                   &fs->send_request[par_i][d]);
-#ifdef USE_TX
         txRangePop();
-#endif
         start_send_timer.stop();
 
     }
@@ -485,13 +482,9 @@ void Field<T>::wait_gather(Direction d, Parity p) const {
             wait_receive_timer.start();
 
             MPI_Status status;
-#if defined(USE_TX)
             txRangePush("MPI_Wait");
-#endif
             MPI_Wait(&fs->receive_request[par_i][d], &status);
-#if defined(USE_TX)
             txRangePop();
-#endif
 
             wait_receive_timer.stop();
 
@@ -504,13 +497,9 @@ void Field<T>::wait_gather(Direction d, Parity p) const {
         if (to_node.rank != hila::myrank() && boundary_need_to_communicate(-d)) {
             wait_send_timer.start();
             MPI_Status status;
-#if defined(USE_TX)
             txRangePush("MPI_Wait");
-#endif
             MPI_Wait(&fs->send_request[par_i][d], &status);
-#if defined(USE_TX)
             txRangePop();
-#endif
             wait_send_timer.stop();
         }
 
@@ -575,14 +564,10 @@ void Field<T>::field_struct::gather_elements(T *RESTRICT buffer,
             if (sites_on_rank[n] > 0) {
                 if (n != root) {
                     MPI_Status status;
-#if defined(USE_TX)
                     txRangePush("MPI_Irecv");
-#endif
                     MPI_Irecv(b, (int)(sites_on_rank[n] * sizeof(T)), MPI_BYTE, n, n,
                               lattice.mpi_comm_lat, &mpi_req[nreqs++]);
-#if defined(USE_TX)
                     txRangePop();
-#endif
                     nptr[n] = b;
                     b += sites_on_rank[n];
 
@@ -595,13 +580,9 @@ void Field<T>::field_struct::gather_elements(T *RESTRICT buffer,
 
         if (nreqs > 0) {
             std::vector<MPI_Status> stat_arr(nreqs);
-#if defined(USE_TX)
             txRangePush("MPI_WaitAll");
-#endif
             MPI_Waitall(nreqs, mpi_req.data(), stat_arr.data());
-#if defined(USE_TX)
             txRangePop();
-#endif
         }
 
         // copy the data from bp to buffer, reordering
@@ -645,14 +626,10 @@ void Field<T>::field_struct::scatter_elements(T *RESTRICT buffer,
     if (hila::myrank() != root && sites_on_rank[hila::myrank()] > 0) {
         std::vector<T> recv_buffer(index_list.size());
         MPI_Status status;
-#if defined(USE_TX)
         txRangePush("MPI_recv");
-#endif
         MPI_Recv((char *)recv_buffer.data(), sites_on_rank[hila::myrank()] * sizeof(T), MPI_BYTE,
                  root, hila::myrank(), lattice.mpi_comm_lat, &status);
-#if defined(USE_TX)
         txRangePop();
-#endif
 
         payload.place_elements((T *)recv_buffer.data(), index_list.data(), recv_buffer.size(),
                                lattice);
@@ -680,14 +657,10 @@ void Field<T>::field_struct::scatter_elements(T *RESTRICT buffer,
         for (int n = 0; n < sites_on_rank.size(); n++) {
             if (sites_on_rank[n] > 0) {
                 if (n != root) {
-#ifdef USE_TX
                     txRangePush("MPI_Isend");
-#endif
                     MPI_Isend(pb.data() + nloc[n], (int)(sites_on_rank[n] * sizeof(T)), MPI_BYTE, n,
                               n, lattice.mpi_comm_lat, &mpi_req[nreqs++]);
-#ifdef USE_TX
                     txRangePop();
-#endif
                 }
             }
         }
@@ -697,13 +670,9 @@ void Field<T>::field_struct::scatter_elements(T *RESTRICT buffer,
 
         if (nreqs > 0) {
             std::vector<MPI_Status> stat_arr(nreqs);
-#if defined(USE_TX)
             txRangePush("MPI_Wait");
-#endif
             MPI_Waitall(nreqs, mpi_req.data(), stat_arr.data());
-#if defined(USE_TX)
             txRangePop();
-#endif
         }
     }
 }
